@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>没ネタ御籤</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #fcfcfc;
+    color: #111;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .screen {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+    width: 100%;
+  }
+  .screen.active {
+    display: flex;
+    opacity: 1;
+  }
+
+  .start-btn {
+    background-color: #111;
+    color: #fff;
+    border: none;
+    padding: 16px 32px;
+    font-size: 16px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+
+  /* おみくじ箱と演出要素 */
+  .omikuji-wrapper {
+    transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1);
+    /* ズームの基準点を上部（御籤が出る位置）に設定 */
+    transform-origin: center top;
+  }
+  .omikuji-container {
+    position: relative;
+    width: 90px;
+    height: 140px;
+    margin-bottom: 40px;
+  }
+  
+  /* 箱本体とテキスト */
+  .box {
+    position: absolute;
+    bottom: 0;
+    width: 90px;
+    height: 130px;
+    background-color: #222;
+    z-index: 2;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .box-text {
+    color: #fff;
+    writing-mode: vertical-rl;
+    font-size: 18px;
+    font-weight: bold;
+    letter-spacing: 4px;
+  }
+  
+  /* 振るアニメーション */
+  .shaking .box {
+    animation: shake 0.3s infinite;
+  }
+  @keyframes shake {
+    0% { transform: rotate(0deg); }
+    25% { transform: rotate(15deg); }
+    50% { transform: rotate(0deg); }
+    75% { transform: rotate(-15deg); }
+    100% { transform: rotate(0deg); }
+  }
+
+  /* 御籤（棒）と文字 */
+  .stick {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 110px;
+    background-color: #e0e0e0;
+    z-index: 1;
+    transition: bottom 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    display: flex;
+    justify-content: center;
+    padding-top: 10px;
+    box-sizing: border-box;
+  }
+  .stick.appear {
+    bottom: 120px; 
+  }
+  .stick-text {
+    writing-mode: vertical-rl;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    color: #111;
+    opacity: 0;
+    transition: opacity 1s ease;
+  }
+  .stick-text.show {
+    opacity: 1;
+  }
+
+  /* ズーム時の制御：拡大率と位置を調整して御籤に焦点を合わせる */
+  .omikuji-wrapper.zoom {
+    transform: scale(3.5) translateY(30px);
+  }
+
+  .instruction {
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #666;
+    transition: opacity 0.5s;
+  }
+  
+  /* 最終結果と動画領域 */
+  .result-text {
+    font-size: 32px;
+    font-weight: 300;
+    letter-spacing: 4px;
+    margin: 30px 0;
+  }
+  .video-container {
+    width: 100%;
+    max-width: 560px;
+    aspect-ratio: 16 / 9;
+    background-color: #000;
+    margin-top: 20px;
+  }
+  iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+  .notice {
+    font-size: 12px;
+    color: #999;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 初期画面 -->
+  <div id="start-screen" class="screen">
+    <button id="start-btn" class="start-btn">開始する</button>
+  </div>
+
+  <!-- 待機・演出画面 -->
+  <div id="shake-screen" class="screen">
+    <div class="omikuji-wrapper" id="omikuji-wrapper">
+      <div class="omikuji-container" id="omikuji-container">
+        <div class="stick" id="stick">
+          <div class="stick-text" id="stick-text"></div>
+        </div>
+        <div class="box">
+          <div class="box-text">没ネタ御籤</div>
+        </div>
+      </div>
+    </div>
+    <div class="instruction" id="instruction">スマートフォンを振ってください</div>
+  </div>
+
+  <!-- 動画再生画面 -->
+  <div id="result-screen" class="screen">
+    <div class="result-text" id="fortune-name"></div>
+    <div class="video-container" id="video-area"></div>
+    <div class="notice" id="already-drawn-notice" style="display:none;">※既に引かれたおみくじの結果を表示しています</div>
+  </div>
+
+  <script>
+    // 運勢データ
+    const fortunes = [
+      { name: 'DEAD', videoId: 'DUMMY_ID_1', probability: 0.1667 },
+      { name: '凶', videoId: 'DUMMY_ID_2', probability: 0.1667 },
+      { name: '小吉', videoId: 'DUMMY_ID_3', probability: 0.1667 },
+      { name: '吉', videoId: 'DUMMY_ID_4', probability: 0.1667 },
+      { name: '大吉', videoId: 'DUMMY_ID_5', probability: 0.1667 },
+      { name: '神', videoId: 'DUMMY_ID_6', probability: 0.1665 }
+    ];
+
+    const startScreen = document.getElementById('start-screen');
+    const shakeScreen = document.getElementById('shake-screen');
+    const resultScreen = document.getElementById('result-screen');
+    
+    // ページ読み込み時の処理（localStorageの確認）
+    window.onload = () => {
+      const savedResult = localStorage.getItem('omikuji_result');
+      if (savedResult) {
+        const result = JSON.parse(savedResult);
+        showFinalVideo(result, true);
+      } else {
+        startScreen.classList.add('active');
+      }
+    };
+
+    let isShaking = false;
+    let isDrawn = false;
+
+    function switchScreen(hideElement, showElement) {
+      hideElement.classList.remove('active');
+      setTimeout(() => {
+        showElement.classList.add('active');
+      }, 800);
+    }
+
+    document.getElementById('start-btn').addEventListener('click', () => {
+      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === 'granted') {
+              window.addEventListener('devicemotion', handleMotion);
+              switchScreen(startScreen, shakeScreen);
+            } else {
+              alert('センサーの使用が許可されませんでした。');
+            }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener('devicemotion', handleMotion);
+        switchScreen(startScreen, shakeScreen);
+      }
+    });
+
+    function handleMotion(event) {
+      if (isDrawn) return;
+      const acc = event.accelerationIncludingGravity;
+      if (!acc) return;
+
+      const totalAcceleration = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+      const threshold = 30; 
+
+      if (totalAcceleration > threshold && !isShaking) {
+        isShaking = true;
+        document.getElementById('omikuji-container').classList.add('shaking');
+
+        setTimeout(() => {
+          executeAnimationSequence();
+        }, 1000);
+      }
+    }
+
+    function executeAnimationSequence() {
+      isDrawn = true;
+      window.removeEventListener('devicemotion', handleMotion);
+      
+      const randomValue = Math.random();
+      let cumulativeProbability = 0;
+      let result = fortunes[fortunes.length - 1];
+
+      for (let i = 0; i < fortunes.length; i++) {
+        cumulativeProbability += fortunes[i].probability;
+        if (randomValue < cumulativeProbability) {
+          result = fortunes[i];
+          break;
+        }
+      }
+
+      localStorage.setItem('omikuji_result', JSON.stringify(result));
+
+      const wrapper = document.getElementById('omikuji-wrapper');
+      const container = document.getElementById('omikuji-container');
+      const stick = document.getElementById('stick');
+      const stickText = document.getElementById('stick-text');
+      const instruction = document.getElementById('instruction');
+
+      container.classList.remove('shaking');
+      instruction.style.opacity = '0';
+      stick.classList.add('appear');
+
+      setTimeout(() => {
+        wrapper.classList.add('zoom');
+
+        setTimeout(() => {
+          stickText.textContent = result.name;
+          stickText.classList.add('show');
+
+          setTimeout(() => {
+            showFinalVideo(result, false);
+          }, 2500); 
+        }, 1500); 
+      }, 1000); 
+    }
+
+    function showFinalVideo(result, isRevisit) {
+      document.getElementById('fortune-name').textContent = result.name;
+      document.getElementById('video-area').innerHTML = `<iframe src="https://www.youtube.com/embed/${result.videoId}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+      
+      if (isRevisit) {
+        document.getElementById('already-drawn-notice').style.display = 'block';
+        startScreen.classList.remove('active');
+        resultScreen.classList.add('active');
+      } else {
+        switchScreen(shakeScreen, resultScreen);
+      }
+    }
+  </script>
+</body>
+</html>
